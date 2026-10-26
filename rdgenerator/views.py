@@ -598,7 +598,13 @@ def save_png(file, uuid, domain, name):
     #return "%s/%s" % (domain, file_save_path)
     return domain, uuid, name
 
+TOKEN = os.environ.get("TOKEN", "")
+
 def save_custom_client(request):
+    if TOKEN:
+        auth = request.headers.get("Authorization", "")
+        if auth != f"Bearer {TOKEN}":
+            return HttpResponseForbidden("Invalid token")
     file = request.FILES['file']
     myuuid = request.POST.get('uuid')
     if not _safe_parts(myuuid, file.name):
