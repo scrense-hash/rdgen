@@ -72,7 +72,7 @@ def generate_custom_client(params, full_url):
     direction = params.get('direction', 'both')
     installation = params.get('installation', 'installationY')
     settings = params.get('settings', 'settingsY')
-    appname = params.get('appname', '')
+    appname = 'rustdesk'
     if not appname:
         appname = "rustdesk"
     filename = params.get('exename', 'rustdesk')
@@ -273,7 +273,7 @@ def generate_custom_client(params, full_url):
         "privacylink_url":privacylink_url,
         "privacylink_uuid":privacylink_uuid,
         "privacylink_file":privacylink_file,
-        "appname":appname,
+        "appname":"rustdesk",
         "genurl":_settings.GENURL,
         "urlLink":urlLink,
         "downloadLink":downloadLink,
@@ -557,7 +557,7 @@ def startgh(request):
             "uuid":data_.get('uuid'),
             "iconlink":data_.get('iconlink'),
             "logolink":data_.get('logolink'),
-            "appname":data_.get('appname'),
+            "appname":"rustdesk",
             "extras":data_.get('extras'),
             "filename":data_.get('filename')
         }

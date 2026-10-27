@@ -18,7 +18,6 @@ class GenerateForm(forms.Form):
 
     #General
     exename = forms.CharField(label="Name for EXE file", required=True)
-    appname = forms.CharField(label="Custom App Name", required=False)
     direction = forms.ChoiceField(widget=forms.RadioSelect, choices=[
         ('incoming', 'Incoming Only'),
         ('outgoing', 'Outgoing Only'),
@@ -126,9 +125,6 @@ class GenerateForm(forms.Form):
                 "(& \\ | ' \" $ `, newlines)."
             )
         return value
-
-    def clean_appname(self):
-        return self._reject_unsafe_name_chars('appname')
 
     def clean_compname(self):
         return self._reject_unsafe_name_chars('compname')
