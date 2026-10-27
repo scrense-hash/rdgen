@@ -464,6 +464,10 @@ jobs:
           dockerRunArgs: |
             --volume "${PWD}:/workspace"
             --volume "/opt/artifacts:/opt/artifacts"
+          # run-on-arch does not inherit the job env, and its generated script
+          # runs with `set -u`, so the selection has to be passed explicitly.
+          env: |
+            FORMATS: ${{ inputs.formats }}
           shell: /bin/bash
           install: |
             apt-get update -y
@@ -673,14 +677,14 @@ jobs:
             # rpm/suse package the flutter BUNDLE (not tmpdeb), so the deb's
             # custom_.txt never reaches them. Copy it into the bundle too, so the
             # baked password/permissions land in every format.
-            if [[ -z "${FORMATS}" || ",${FORMATS}," == *",rpm,"* || ",${FORMATS}," == *",suse,"* ]]; then
+            if [[ -z "${FORMATS:-}" || ",${FORMATS:-}," == *",rpm,"* || ",${FORMATS:-}," == *",suse,"* ]]; then
               BUNDLE=flutter/build/linux/x64/release/bundle
               [ "${{ matrix.job.arch }}" = "aarch64" ] && BUNDLE=flutter/build/linux/arm64/release/bundle
               cp ./custom_.txt "$BUNDLE/custom_.txt" || echo "WARN: could not copy custom_.txt into bundle"
               ls -l "$BUNDLE/custom_.txt" || echo "WARN: custom_.txt missing from bundle ($BUNDLE)"
             fi
 
-            if [[ -z "${FORMATS}" || ",${FORMATS}," == *",rpm,"* ]]; then
+            if [[ -z "${FORMATS:-}" || ",${FORMATS:-}," == *",rpm,"* ]]; then
               # rpm package
               echo -e "start packaging fedora package"
               pushd /workspace
@@ -696,7 +700,7 @@ jobs:
               done
             fi
 
-            if [[ -z "${FORMATS}" || ",${FORMATS}," == *",suse,"* ]]; then
+            if [[ -z "${FORMATS:-}" || ",${FORMATS:-}," == *",suse,"* ]]; then
               # rpm suse package
               echo -e "start packaging suse package"
               pushd /workspace
@@ -749,10 +753,10 @@ jobs:
           shell: bash
           command: |
             files=()
-            if [[ -z "${FORMATS}" || ",${FORMATS}," == *",deb,"* ]]; then files+=("${{ env.filename }}-${{ matrix.job.arch }}.deb"); fi
-            if [[ -z "${FORMATS}" || ",${FORMATS}," == *",rpm,"* ]]; then files+=("${{ env.filename }}-${{ matrix.job.arch }}.rpm"); fi
-            if [[ -z "${FORMATS}" || ",${FORMATS}," == *",suse,"* ]]; then files+=("${{ env.filename }}-suse-${{ matrix.job.arch }}.rpm"); fi
-            if [[ -z "${FORMATS}" || ",${FORMATS}," == *",pkg,"* ]]; then files+=("${{ env.filename }}-${{ matrix.job.arch }}.pkg.tar.zst"); fi
+            if [[ -z "${FORMATS:-}" || ",${FORMATS:-}," == *",deb,"* ]]; then files+=("${{ env.filename }}-${{ matrix.job.arch }}.deb"); fi
+            if [[ -z "${FORMATS:-}" || ",${FORMATS:-}," == *",rpm,"* ]]; then files+=("${{ env.filename }}-${{ matrix.job.arch }}.rpm"); fi
+            if [[ -z "${FORMATS:-}" || ",${FORMATS:-}," == *",suse,"* ]]; then files+=("${{ env.filename }}-suse-${{ matrix.job.arch }}.rpm"); fi
+            if [[ -z "${FORMATS:-}" || ",${FORMATS:-}," == *",pkg,"* ]]; then files+=("${{ env.filename }}-${{ matrix.job.arch }}.pkg.tar.zst"); fi
             for f in "${files[@]}"; do
               [ -f "./output/$f" ] || continue
               curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ secrets.TOKEN }}" -F "file=@./output/$f" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client
