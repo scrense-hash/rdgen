@@ -4,3 +4,7 @@ gunicorn.conf
 .venv
 
 .env
+
+exe/
+temp_zips/
+png/

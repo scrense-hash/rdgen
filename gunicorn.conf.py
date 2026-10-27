@@ -8,4 +8,4 @@ activate_base = True  # Activate your virtual environment if applicable
 
 # Path to your Django project's main WSGI application file (usually manage.py)
 wsgi_app = "rdgen.wsgi:application"
-timeout = 300
+timeout = 900
