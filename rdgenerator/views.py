@@ -13,7 +13,7 @@ import uuid
 import pyzipper
 from django.conf import settings as _settings
 from django.db.models import Q
-from .forms import GenerateForm
+from .forms import GenerateForm, PLATFORM_ARCHES, platform_format_codes, normalize_selection
 from .models import GithubRun
 from PIL import Image
 from urllib.parse import quote
@@ -47,6 +47,8 @@ def generate_custom_client(params, full_url):
     selfhosted = (_settings.SH_SECRET == user_secret)
     platform = params.get('platform', 'windows')
     version = params.get('version', '1.4.9')
+    formats = normalize_selection(params.get('formats'), platform_format_codes(platform))
+    arches = normalize_selection(params.get('arches'), PLATFORM_ARCHES.get(platform, []))
     delayFix = params.get('delayFix', True)
     xOffline = params.get('xOffline', False)
     hidecm = params.get('hidecm', False)
@@ -311,7 +313,9 @@ def generate_custom_client(params, full_url):
         "ref":_settings.GHBRANCH,
         "inputs":{
             "version":version,
-            "zip_url":zip_url
+            "zip_url":zip_url,
+            "formats": ",".join(formats),
+            "arches": ",".join(arches)
         },
         "return_run_details": True
     } 
@@ -323,7 +327,9 @@ def generate_custom_client(params, full_url):
     }
     new_github_run = GithubRun(
         uuid=myuuid,
-        status="Starting generator...please wait"
+        status="Starting generator...please wait",
+        formats=",".join(formats),
+        arches=",".join(arches)
     )
     try:
         response = requests.post(url, json=data, headers=headers)
@@ -422,6 +428,40 @@ def generator_view(request):
     return render(request, 'generator.html', {'form': form})
 
 
+def _artifact_names(filename, platform, formats, arches):
+    """Candidate artifact names for the requested targets, in display order."""
+    names = []
+    if platform in ('windows', 'windows-x86'):
+        if 'exe' in formats:
+            names.append(f"{filename}.exe")
+        if 'msi' in formats:
+            names.append(f"{filename}.msi")
+    elif platform == 'linux':
+        for arch in arches:
+            if 'deb' in formats:
+                names.append(f"{filename}-{arch}.deb")
+            if 'drm' in formats and arch == 'x86_64':
+                names.append(f"{filename}-unattended-wayland-{arch}.deb")
+            if 'rpm' in formats:
+                names.append(f"{filename}-{arch}.rpm")
+            if 'suse' in formats:
+                names.append(f"{filename}-suse-{arch}.rpm")
+            # the arch package is only built for x86_64
+            if 'pkg' in formats and arch == 'x86_64':
+                names.append(f"{filename}-{arch}.pkg.tar.zst")
+            if 'appimage' in formats:
+                names.append(f"{filename}-{arch}.AppImage")
+            if 'flatpak' in formats:
+                names.append(f"{filename}-{arch}.flatpak")
+    elif platform == 'android':
+        for arch in arches:
+            names.append(f"{filename}-{arch}.apk")
+    elif platform == 'macos':
+        for arch in arches:
+            names.append(f"{filename}-{arch}.dmg")
+    return names
+
+
 def check_for_file(request):
     filename = request.GET.get('filename')
     uuid = request.GET.get('uuid')
@@ -435,11 +475,19 @@ def check_for_file(request):
     gh_run = result['gh_run']
     github_log_url = result['github_log_url']
 
+    # Only offer what this run asked for and what actually reached disk, so a
+    # deb-only build no longer advertises rpm/flatpak/arm64 links.
+    formats = [f for f in (gh_run.formats or '').split(',') if f] or platform_format_codes(platform)
+    arches = [a for a in (gh_run.arches or '').split(',') if a] or PLATFORM_ARCHES.get(platform, [])
+    files = [name for name in _artifact_names(filename, platform, formats, arches)
+             if _safe_parts(uuid, name) and os.path.isfile(os.path.join('exe', uuid, name))]
+
     if gh_run.status == "success":
         return render(request, 'generated.html', {
             'filename': filename, 
             'uuid': uuid, 
-            'platform': platform
+            'platform': platform,
+            'files': files
         })
         
     elif gh_run.status in ['failure', 'cancelled', 'timed_out', 'skipped', 'action_required']:
@@ -448,7 +496,8 @@ def check_for_file(request):
             'filename': filename, 
             'uuid': uuid, 
             'platform': platform,
-            'status': gh_run.status
+            'status': gh_run.status,
+            'files': files
         })
         
     else:

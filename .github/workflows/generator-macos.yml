@@ -13,6 +13,16 @@ on:
         required: true
         default: ''
         type: string
+      formats:
+        description: 'CSV of packages to build (empty = all)'
+        required: false
+        default: ''
+        type: string
+      arches:
+        description: 'CSV of architectures to build (empty = all)'
+        required: false
+        default: ''
+        type: string
 
 env:
   SCITER_RUST_VERSION: "1.75" # https://github.com/rustdesk/rustdesk/discussions/7503, also 1.78 has ABI change which causes our sciter version not working, https://blog.rust-lang.org/2024/03/30/i128-layout-update.html
@@ -50,29 +60,42 @@ jobs:
     with:
       version: ${{ inputs.version }}
 
+  # Filters the build matrix down to the requested architectures: a job level
+  # `if` cannot read the matrix context, so this has to run first.
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - id: matrix
+        shell: bash
+        env:
+          ARCHES: ${{ inputs.arches }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, os
+
+          arches = [a.strip() for a in os.environ.get("ARCHES", "").split(",") if a.strip()]
+          if not arches:
+              arches = ["x86_64", "aarch64"]
+
+          jobs = [
+              {"target": "x86_64-apple-darwin", "os": "macos-15-intel",
+               "extra-build-args": "", "arch": "x86_64", "vcpkg-triplet": "x64-osx"},
+              {"target": "aarch64-apple-darwin", "os": "macos-14",
+               "extra-build-args": "--screencapturekit", "arch": "aarch64",
+               "vcpkg-triplet": "arm64-osx"},
+          ]
+          print("matrix=" + json.dumps({"job": [j for j in jobs if j["arch"] in arches]}))
+          PY
+
   build-for-macos:
     name: ${{ matrix.job.target }}
     runs-on: ${{ matrix.job.os }}
-    needs: [generate-bridge, setup]
+    needs: [generate-bridge, setup, prepare]
     strategy:
       fail-fast: false
-      matrix:
-        job:
-          - {
-              target: x86_64-apple-darwin,
-              os: macos-15-intel, #macos-latest or macos-14 use M1 now, https://docs.github.com/en/actions/using-github-hosted-runners/about-github-hosted-runners/about-github-hosted-runners#:~:text=14%20GB-,macos%2Dlatest%20or%20macos%2D14,-The%20macos%2Dlatestlabel
-              extra-build-args: "",
-              arch: x86_64,
-              vcpkg-triplet: x64-osx,
-            }
-          - {
-              target: aarch64-apple-darwin,
-              os: macos-14,
-              # extra-build-args: "--disable-flutter-texture-render", # disable this for mac, because we see a lot of users reporting flickering both on arm and x64, and we can not confirm if texture rendering has better performance if htere is no vram, https://github.com/rustdesk/rustdesk/issues/6296
-              extra-build-args: "--screencapturekit",
-              arch: aarch64,
-              vcpkg-triplet: arm64-osx,
-            }
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     env:
       STATUS_URL: "${{ secrets.GENURL }}/updategh"
 

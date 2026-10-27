@@ -90,6 +90,15 @@ def validate_generate_params(data):
     for field in OPTIONAL_STR_FIELDS:
         cleaned[field] = data.get(field, '')
 
+    # Build target selection. Accepts a list or a comma separated string; the
+    # values are filtered against the platform's supported targets later, in
+    # generate_custom_client(), so unknown entries are simply dropped.
+    for field in ('formats', 'arches'):
+        value = data.get(field, '')
+        if isinstance(value, (list, tuple)):
+            value = ','.join(str(v) for v in value)
+        cleaned[field] = value if isinstance(value, str) else ''
+
     # Free-text names flow into single/double-quoted bash sed scripts
     # (same rule as GenerateForm.clean_appname/clean_compname).
     for field in ('appname', 'compname'):

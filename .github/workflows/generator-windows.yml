@@ -13,6 +13,16 @@ on:
         required: true
         default: ''
         type: string
+      formats:
+        description: 'CSV of packages to build: exe,msi (empty = all)'
+        required: false
+        default: ''
+        type: string
+      arches:
+        description: 'CSV of architectures to build: x86_64 (empty = all)'
+        required: false
+        default: ''
+        type: string
 
 
 env:
@@ -684,7 +694,7 @@ jobs:
 
       - name: Build msi
         continue-on-error: true
-        if: env.UPLOAD_ARTIFACT == 'true'
+        if: env.UPLOAD_ARTIFACT == 'true' && (inputs.formats == '' || contains(inputs.formats, 'msi'))
         run: |
           $myappname = "${{ env.appname }}" -replace '\s','_'
           cp "rustdesk/${{ env.appname }}.exe" "rustdesk/${myappname}.exe" -ErrorAction SilentlyContinue
@@ -700,7 +710,9 @@ jobs:
         continue-on-error: true
         shell: pwsh
         run: |
-          Compress-Archive -Path ./SignOutput/*.exe, ./SignOutput/*.msi -DestinationPath ./SignOutput/unsigned_files.zip -CompressionLevel Fastest
+          # *.msi only exists when the msi target was requested
+          $items = @(Get-ChildItem ./SignOutput/*.exe, ./SignOutput/*.msi -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
+          Compress-Archive -Path $items -DestinationPath ./SignOutput/unsigned_files.zip -CompressionLevel Fastest
 
       - name: sign exe and msi
         continue-on-error: true

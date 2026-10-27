@@ -13,6 +13,16 @@ on:
         required: true
         default: ''
         type: string
+      formats:
+        description: 'CSV of packages to build: deb,drm,rpm,suse,pkg,appimage,flatpak (empty = all)'
+        required: false
+        default: ''
+        type: string
+      arches:
+        description: 'CSV of architectures to build: x86_64,aarch64 (empty = all)'
+        required: false
+        default: ''
+        type: string
 
 env:
   SCITER_RUST_VERSION: "1.75" # https://github.com/rustdesk/rustdesk/discussions/7503, also 1.78 has ABI change which causes our sciter version not working, https://blog.rust-lang.org/2024/03/30/i128-layout-update.html
@@ -52,31 +62,64 @@ jobs:
     with:
       version: ${{ inputs.version }}
 
+  # Turns the requested architectures into the per-job matrices below. Job
+  # level `if` cannot read the matrix context, so filtering has to happen
+  # before the matrix is expanded.
+  prepare-linux:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      matrix_appimage: ${{ steps.matrix.outputs.matrix_appimage }}
+      matrix_flatpak: ${{ steps.matrix.outputs.matrix_flatpak }}
+    steps:
+      - id: matrix
+        shell: bash
+        env:
+          ARCHES: ${{ inputs.arches }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, os
+
+          arches = [a.strip() for a in os.environ.get("ARCHES", "").split(",") if a.strip()]
+          if not arches:
+              arches = ["x86_64", "aarch64"]
+
+          build = [
+              {"arch": "x86_64", "target": "x86_64-unknown-linux-gnu", "distro": "ubuntu18.04",
+               "on": "ubuntu-22.04", "deb_arch": "amd64", "vcpkg-triplet": "x64-linux"},
+              {"arch": "aarch64", "target": "aarch64-unknown-linux-gnu", "distro": "ubuntu18.04",
+               "on": "ubuntu-22.04-arm", "deb_arch": "arm64", "vcpkg-triplet": "arm64-linux"},
+          ]
+          appimage = [
+              {"target": "x86_64-unknown-linux-gnu", "arch": "x86_64"},
+              {"target": "aarch64-unknown-linux-gnu", "arch": "aarch64"},
+          ]
+          flatpak = [
+              {"target": "x86_64-unknown-linux-gnu", "distro": "ubuntu22.04",
+               "on": "ubuntu-22.04", "arch": "x86_64", "suffix": ""},
+              {"target": "aarch64-unknown-linux-gnu", "distro": "ubuntu22.04",
+               "on": "ubuntu-22.04-arm", "arch": "aarch64", "suffix": ""},
+          ]
+
+          def keep(jobs):
+              return [j for j in jobs if j["arch"] in arches]
+
+          print("matrix=" + json.dumps({"job": keep(build)}))
+          print("matrix_appimage=" + json.dumps({"job": keep(appimage)}))
+          print("matrix_flatpak=" + json.dumps({"job": keep(flatpak)}))
+          PY
+
   build-rustdesk-linux:
-    needs: [generate-bridge-linux, setup]
+    needs: [generate-bridge-linux, setup, prepare-linux]
     name: build rustdesk linux ${{ matrix.job.target }}
+    # A drm-only request is served entirely by build-rustdesk-linux-drm.
+    if: ${{ inputs.formats == '' || contains(inputs.formats, 'deb') || contains(inputs.formats, 'rpm') || contains(inputs.formats, 'suse') || contains(inputs.formats, 'pkg') || contains(inputs.formats, 'appimage') || contains(inputs.formats, 'flatpak') }}
     runs-on: ${{ matrix.job.on }}
     strategy:
       fail-fast: false
-      matrix:
-        # use a high level qemu-user-static
-        job:
-          - {
-              arch: x86_64,
-              target: x86_64-unknown-linux-gnu,
-              distro: ubuntu18.04,
-              on: ubuntu-22.04,
-              deb_arch: amd64,
-              vcpkg-triplet: x64-linux,
-            }
-          - {
-            arch: aarch64,
-            target: aarch64-unknown-linux-gnu,
-            distro: ubuntu18.04,
-            on: ubuntu-22.04-arm,
-            deb_arch: arm64,
-            vcpkg-triplet: arm64-linux,
-          }
+      matrix: ${{ fromJSON(needs.prepare-linux.outputs.matrix) }}
+    env:
+      FORMATS: ${{ inputs.formats }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -627,48 +670,54 @@ jobs:
               mv "$name" /workspace/output/"${{ env.filename }}-${{ matrix.job.arch }}.deb"
             done
 
-            # rpm/suse/arch package the flutter BUNDLE (not tmpdeb), so the deb's
+            # rpm/suse package the flutter BUNDLE (not tmpdeb), so the deb's
             # custom_.txt never reaches them. Copy it into the bundle too, so the
             # baked password/permissions land in every format.
-            BUNDLE=flutter/build/linux/x64/release/bundle
-            [ "${{ matrix.job.arch }}" = "aarch64" ] && BUNDLE=flutter/build/linux/arm64/release/bundle
-            cp ./custom_.txt "$BUNDLE/custom_.txt" || echo "WARN: could not copy custom_.txt into bundle"
-            ls -l "$BUNDLE/custom_.txt" || echo "WARN: custom_.txt missing from bundle ($BUNDLE)"
+            if [[ -z "${FORMATS}" || ",${FORMATS}," == *",rpm,"* || ",${FORMATS}," == *",suse,"* ]]; then
+              BUNDLE=flutter/build/linux/x64/release/bundle
+              [ "${{ matrix.job.arch }}" = "aarch64" ] && BUNDLE=flutter/build/linux/arm64/release/bundle
+              cp ./custom_.txt "$BUNDLE/custom_.txt" || echo "WARN: could not copy custom_.txt into bundle"
+              ls -l "$BUNDLE/custom_.txt" || echo "WARN: custom_.txt missing from bundle ($BUNDLE)"
+            fi
 
-            # rpm package
-            echo -e "start packaging fedora package"
-            pushd /workspace
-            case ${{ matrix.job.arch }} in
-              aarch64)
-                sed -i "s/linux\/x64/linux\/arm64/g" ./res/rpm-flutter.spec
-                ;;
-            esac
-            HBB=`pwd` rpmbuild ./res/rpm-flutter.spec -bb
-            pushd ~/rpmbuild/RPMS/${{ matrix.job.arch }}
-            for name in *.rpm; do
-                mv "$name" /workspace/output/"${{ env.filename }}-${{ matrix.job.arch }}.rpm"
-            done
+            if [[ -z "${FORMATS}" || ",${FORMATS}," == *",rpm,"* ]]; then
+              # rpm package
+              echo -e "start packaging fedora package"
+              pushd /workspace
+              case ${{ matrix.job.arch }} in
+                aarch64)
+                  sed -i "s/linux\/x64/linux\/arm64/g" ./res/rpm-flutter.spec
+                  ;;
+              esac
+              HBB=`pwd` rpmbuild ./res/rpm-flutter.spec -bb
+              pushd ~/rpmbuild/RPMS/${{ matrix.job.arch }}
+              for name in *.rpm; do
+                  mv "$name" /workspace/output/"${{ env.filename }}-${{ matrix.job.arch }}.rpm"
+              done
+            fi
 
-            # rpm suse package
-            echo -e "start packaging suse package"
-            pushd /workspace
-            case ${{ matrix.job.arch }} in
-              aarch64)
-                sed -i "s/linux\/x64/linux\/arm64/g" ./res/rpm-flutter-suse.spec
-                ;;
-            esac
-            HBB=`pwd` rpmbuild ./res/rpm-flutter-suse.spec -bb
-            pushd ~/rpmbuild/RPMS/${{ matrix.job.arch }}
-            for name in *.rpm; do
-                mv "$name" /workspace/output/"${{ env.filename }}-suse-${{ matrix.job.arch }}.rpm"
-            done
+            if [[ -z "${FORMATS}" || ",${FORMATS}," == *",suse,"* ]]; then
+              # rpm suse package
+              echo -e "start packaging suse package"
+              pushd /workspace
+              case ${{ matrix.job.arch }} in
+                aarch64)
+                  sed -i "s/linux\/x64/linux\/arm64/g" ./res/rpm-flutter-suse.spec
+                  ;;
+              esac
+              HBB=`pwd` rpmbuild ./res/rpm-flutter-suse.spec -bb
+              pushd ~/rpmbuild/RPMS/${{ matrix.job.arch }}
+              for name in *.rpm; do
+                  mv "$name" /workspace/output/"${{ env.filename }}-suse-${{ matrix.job.arch }}.rpm"
+              done
+            fi
 
       # only x86_64 for arch since we can not find newest arm64 docker image to build
       # old arch image does not make sense for arch since it is "arch" which always update to date
       # and failed to makepkg arm64 on x86_64
       - name: Patch archlinux PKGBUILD
         continue-on-error: true
-        if: matrix.job.arch == 'x86_64' && env.UPLOAD_ARTIFACT == 'true' && env.VERSION != 'master'
+        if: matrix.job.arch == 'x86_64' && env.UPLOAD_ARTIFACT == 'true' && env.VERSION != 'master' && contains(inputs.formats, 'pkg')
         run: |
           sed -i "s/x86_64/${{ matrix.job.arch }}/g" res/PKGBUILD
           if [[ "${{ matrix.job.arch }}" == "aarch64" ]]; then
@@ -677,7 +726,7 @@ jobs:
 
       - name: Build archlinux package
         continue-on-error: true
-        if: matrix.job.arch == 'x86_64' && env.UPLOAD_ARTIFACT == 'true' && env.VERSION != 'master'
+        if: matrix.job.arch == 'x86_64' && env.UPLOAD_ARTIFACT == 'true' && env.VERSION != 'master' && contains(inputs.formats, 'pkg')
         uses: rustdesk-org/arch-makepkg-action@master
         with:
           packages:
@@ -686,7 +735,7 @@ jobs:
 
       - name: Rename archlinux package
         continue-on-error: true
-        if:  matrix.job.arch == 'x86_64' && env.UPLOAD_ARTIFACT == 'true' && env.VERSION != 'master'
+        if:  matrix.job.arch == 'x86_64' && env.UPLOAD_ARTIFACT == 'true' && env.VERSION != 'master' && contains(inputs.formats, 'pkg')
         run: |
           cp ./res/rustdesk-${{ env.VERSION }}-0-x86_64.pkg.tar.zst ./output/${{ env.filename }}-${{ matrix.job.arch }}.pkg.tar.zst
 
@@ -699,10 +748,15 @@ jobs:
           retry_wait_seconds: 15
           shell: bash
           command: |
-            curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ secrets.TOKEN }}" -F "file=@./output/${{ env.filename }}-${{ matrix.job.arch }}.deb" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client
-            curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ secrets.TOKEN }}" -F "file=@./output/${{ env.filename }}-${{ matrix.job.arch }}.rpm" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client
-            curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ secrets.TOKEN }}" -F "file=@./output/${{ env.filename }}-suse-${{ matrix.job.arch }}.rpm" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client
-            curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ secrets.TOKEN }}" -F "file=@./output/${{ env.filename }}-${{ matrix.job.arch }}.pkg.tar.zst" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client || true
+            files=()
+            if [[ -z "${FORMATS}" || ",${FORMATS}," == *",deb,"* ]]; then files+=("${{ env.filename }}-${{ matrix.job.arch }}.deb"); fi
+            if [[ -z "${FORMATS}" || ",${FORMATS}," == *",rpm,"* ]]; then files+=("${{ env.filename }}-${{ matrix.job.arch }}.rpm"); fi
+            if [[ -z "${FORMATS}" || ",${FORMATS}," == *",suse,"* ]]; then files+=("${{ env.filename }}-suse-${{ matrix.job.arch }}.rpm"); fi
+            if [[ -z "${FORMATS}" || ",${FORMATS}," == *",pkg,"* ]]; then files+=("${{ env.filename }}-${{ matrix.job.arch }}.pkg.tar.zst"); fi
+            for f in "${files[@]}"; do
+              [ -f "./output/$f" ] || continue
+              curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ secrets.TOKEN }}" -F "file=@./output/$f" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client
+            done
 
       - name: send file to api server
         if: ${{ env.rdgen == 'false' }}
@@ -729,14 +783,12 @@ jobs:
     needs: [generate-bridge-linux, setup]
     name: build rustdesk linux drm x86_64
     runs-on: ubuntu-22.04
-    # drives: build.py at tag 1.4.9 has neither build_libdrmtap_so nor
-    # assert_staged_binary_is_drm, so a versioned build dies at
-    #   AttributeError: module 'b' has no attribute 'build_libdrmtap_so'
-    # One failed job marks the whole run failed, so a client that was in fact
-    # built got reported as a build failure. No other job consumes this one's
-    # artifacts (deploy needs only build-rustdesk-linux, build-flatpak and
-    # build-appimage). Gated the way bridge.yml already tells the two sources
-    # apart.
+    # Only built on request: libdrmtap/DRM capture is what makes lock screen and
+    # login screen reachable on Wayland. build.py 1.5.0 carries
+    # build_libdrmtap_so/assert_staged_binary_is_drm, so versioned builds are fine
+    # (tag 1.4.9 is not: it dies with "module 'b' has no attribute
+    # build_libdrmtap_so"). x86_64 only, like the job name says.
+    if: ${{ inputs.formats == '' || contains(inputs.formats, 'drm') }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -1256,14 +1308,12 @@ jobs:
 
   build-appimage:
     name: Build appimage ${{ matrix.job.target }}
-    needs: [build-rustdesk-linux]
+    needs: [build-rustdesk-linux, prepare-linux]
+    if: ${{ inputs.formats == '' || contains(inputs.formats, 'appimage') }}
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
-      matrix:
-        job:
-          - { target: x86_64-unknown-linux-gnu, arch: x86_64 }
-          - { target: aarch64-unknown-linux-gnu, arch: aarch64 }
+      matrix: ${{ fromJSON(needs.prepare-linux.outputs.matrix_appimage) }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -1400,26 +1450,12 @@ jobs:
     name: Build flatpak ${{ matrix.job.target }}${{ matrix.job.suffix }}
     needs:
       - build-rustdesk-linux
+      - prepare-linux
+    if: ${{ inputs.formats == '' || contains(inputs.formats, 'flatpak') }}
     runs-on: ${{ matrix.job.on }}
     strategy:
       fail-fast: false
-      matrix:
-        job:
-          - {
-              target: x86_64-unknown-linux-gnu,
-              distro: ubuntu22.04,
-              on: ubuntu-22.04,
-              arch: x86_64,
-              suffix: "",
-            }
-          - {
-              target: aarch64-unknown-linux-gnu,
-              # try out newer flatpak since error of "error: Nothing matches org.freedesktop.Platform in remote flathub"
-              distro: ubuntu22.04,
-              on: ubuntu-22.04-arm,
-              arch: aarch64,
-              suffix: "",
-            }
+      matrix: ${{ fromJSON(needs.prepare-linux.outputs.matrix_flatpak) }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4

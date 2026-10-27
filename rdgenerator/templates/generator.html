@@ -92,6 +92,15 @@
         .platform-icon:hover, .platform-icon.active {
             color: #2e52f7;
         }
+        .target-group {
+            margin-bottom: 12px;
+            line-height: 2.2;
+        }
+        .target-option {
+            display: inline-block;
+            margin-right: 16px;
+            white-space: nowrap;
+        }
         .text-64 {
             font-size: 0.5em; 
             font-weight: bold;
@@ -274,6 +283,32 @@
                 <label for="{{ form.delayFix.id_for_label }}">{{ form.delayFix }} Fix connection delay when using third-party API</label>
             </div>
         </div>
+        <div class="platform">
+            <h2><i class="fas fa-box-open"></i> Build Targets</h2>
+            <div id="targets">
+                <div class="target-group">
+                    <strong>Formats:</strong><br>
+                    <label class="target-option" data-platforms="windows windows-x86"><input type="checkbox" name="formats" value="exe" checked> EXE installer</label>
+                    <label class="target-option" data-platforms="windows"><input type="checkbox" name="formats" value="msi" checked> MSI installer</label>
+                    <label class="target-option" data-platforms="linux"><input type="checkbox" name="formats" value="deb" checked> DEB (Debian/Ubuntu)</label>
+                    <label class="target-option" data-platforms="linux"><input type="checkbox" name="formats" value="drm"> DEB unattended-wayland (DRM: lock/login screen capture)</label>
+                    <label class="target-option" data-platforms="linux"><input type="checkbox" name="formats" value="rpm"> RPM (Fedora)</label>
+                    <label class="target-option" data-platforms="linux"><input type="checkbox" name="formats" value="suse"> RPM (openSUSE)</label>
+                    <label class="target-option" data-platforms="linux"><input type="checkbox" name="formats" value="pkg"> Arch Linux (pkg.tar.zst)</label>
+                    <label class="target-option" data-platforms="linux"><input type="checkbox" name="formats" value="appimage"> AppImage</label>
+                    <label class="target-option" data-platforms="linux"><input type="checkbox" name="formats" value="flatpak"> Flatpak</label>
+                    <label class="target-option" data-platforms="android"><input type="checkbox" name="formats" value="apk" checked> APK</label>
+                    <label class="target-option" data-platforms="macos"><input type="checkbox" name="formats" value="dmg" checked> DMG</label>
+                </div>
+                <div class="target-group">
+                    <strong>Architectures:</strong><br>
+                    <label class="target-option" data-platforms="windows linux android macos"><input type="checkbox" name="arches" value="x86_64" checked> x86_64</label>
+                    <label class="target-option" data-platforms="linux android macos"><input type="checkbox" name="arches" value="aarch64" checked> aarch64</label>
+                    <label class="target-option" data-platforms="android"><input type="checkbox" name="arches" value="armv7"> armv7</label>
+                    <label class="target-option" data-platforms="windows-x86"><input type="checkbox" name="arches" value="x86" checked> x86 (32-bit)</label>
+                </div>
+            </div>
+        </div>
         <div class="container">   
             <div class="section">
                 <h2><i class="fas fa-sliders-h"></i> General</h2>
@@ -406,13 +441,41 @@
         </div>
     </form>
     <script>
+        // Default build targets per platform. Used on load and whenever the
+        // platform changes, so the form never posts a target the platform
+        // cannot build (e.g. RPM for Windows) and never posts nothing.
+        const TARGET_DEFAULTS = {
+            'windows': { formats: ['exe', 'msi'], arches: ['x86_64'] },
+            'windows-x86': { formats: ['exe'], arches: ['x86'] },
+            'linux': { formats: ['deb'], arches: ['x86_64'] },
+            'android': { formats: ['apk'], arches: ['aarch64'] },
+            'macos': { formats: ['dmg'], arches: ['x86_64', 'aarch64'] },
+        };
+
+        function updateTargets() {
+            const platform = document.getElementById('id_platform').value;
+            const defaults = TARGET_DEFAULTS[platform] || { formats: [], arches: [] };
+            document.querySelectorAll('#targets .target-option').forEach(option => {
+                const platforms = (option.dataset.platforms || '').split(/\s+/);
+                const visible = platforms.includes(platform);
+                option.style.display = visible ? 'inline-block' : 'none';
+                const input = option.querySelector('input');
+                if (input) {
+                    input.checked = visible && (defaults[input.name] || []).includes(input.value);
+                }
+            });
+        }
+
         document.querySelectorAll('.platform-icon').forEach(icon => {
             icon.addEventListener('click', function() {
                 document.querySelectorAll('.platform-icon').forEach(i => i.classList.remove('active'));
                 this.classList.add('active');
                 document.getElementById('id_platform').value = this.dataset.platform;
+                updateTargets();
             });
         });
+        document.getElementById('id_platform').addEventListener('change', updateTargets);
+        updateTargets();
         document.getElementById("{{ form.iconfile.id_for_label }}").addEventListener('change', function(event) {
             previewImage(event.target, 'icon-preview');
         });
@@ -585,6 +648,12 @@
                 }
             });
 
+            // Multi-value target checkboxes: keep every ticked value instead of
+            // the last one the generic loop above happened to see.
+            ['formats', 'arches'].forEach(name => {
+                formData[name] = [...form.querySelectorAll(`input[name="${name}"]:checked`)].map(i => i.value);
+            });
+
             // 4. Handle icon and logo
             const iconPreview = document.getElementById('icon-preview');
             if (iconPreview.firstChild && iconPreview.firstChild.src.startsWith('data:image/png;base64')) {
@@ -687,6 +756,15 @@
                                 const elements = document.querySelectorAll(`[name="${key}"], [id="${key}"]`);
 
                                 if (elements.length > 0) { // Check if any element(s) exist
+                                    if (Array.isArray(formData[key])) {
+                                        // Multi-value groups (formats/arches): tick the saved ones.
+                                        elements.forEach(element => {
+                                            if (element.type === 'checkbox') {
+                                                element.checked = formData[key].includes(element.value);
+                                            }
+                                        });
+                                        return;
+                                    }
                                     elements.forEach(element => { // Loop through all matching elements (important for radios)
                                         // Skip fossil values from old saves: objects (e.g. File
                                         // serialized as {}) coerce to "[object Object]" on

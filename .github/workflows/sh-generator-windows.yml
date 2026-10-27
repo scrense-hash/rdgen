@@ -13,6 +13,16 @@ on:
         required: true
         default: ''
         type: string
+      formats:
+        description: 'CSV of packages to build (empty = all)'
+        required: false
+        default: ''
+        type: string
+      arches:
+        description: 'CSV of architectures to build (empty = all)'
+        required: false
+        default: ''
+        type: string
 
 
 env:
@@ -589,7 +599,7 @@ jobs:
 
       - name: Build msi
         continue-on-error: true
-        if: env.UPLOAD_ARTIFACT == 'true'
+        if: env.UPLOAD_ARTIFACT == 'true' && (inputs.formats == '' || contains(inputs.formats, 'msi'))
         run: |
           $myappname = "${{ env.appname }}" -replace '\s','_'
           cp "rustdesk/${{ env.appname }}.exe" "rustdesk/${myappname}.exe" -ErrorAction SilentlyContinue

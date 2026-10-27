@@ -8,6 +8,52 @@ from PIL import Image
 # silently, ' " $ ` break shell quoting, CR/LF break sed addressing.
 UNSAFE_NAME_CHARS = re.compile(r'[&\\|\'"$`\r\n]')
 
+# Build targets offered per platform. The first entry of each list is the
+# default, so a client that asks for nothing still gets a usable package.
+# Keep the keys in sync with GenerateForm.platform choices and with the
+# `formats` / `arches` gating in the generator workflows.
+PLATFORM_FORMATS = {
+    'windows': [('exe', 'EXE installer'), ('msi', 'MSI installer')],
+    'windows-x86': [('exe', 'EXE installer')],
+    'linux': [
+        ('deb', 'DEB (Debian/Ubuntu)'),
+        ('drm', 'DEB unattended-wayland (DRM capture, lock/login screen)'),
+        ('rpm', 'RPM (Fedora)'),
+        ('suse', 'RPM (openSUSE)'),
+        ('pkg', 'Arch Linux (pkg.tar.zst)'),
+        ('appimage', 'AppImage'),
+        ('flatpak', 'Flatpak'),
+    ],
+    'android': [('apk', 'APK')],
+    'macos': [('dmg', 'DMG')],
+}
+
+PLATFORM_ARCHES = {
+    'windows': ['x86_64'],
+    'windows-x86': ['x86'],
+    'linux': ['x86_64', 'aarch64'],
+    'android': ['aarch64', 'x86_64', 'armv7'],
+    'macos': ['x86_64', 'aarch64'],
+}
+
+
+def platform_format_codes(platform):
+    return [code for code, _ in PLATFORM_FORMATS.get(platform, [])]
+
+
+def normalize_selection(values, allowed, default=None):
+    """Keep only values the platform supports; fall back to the defaults.
+
+    Accepts a list (web form) or a comma separated string (JSON API), so the
+    same helper works for both callers.
+    """
+    if isinstance(values, str):
+        values = [v.strip() for v in values.split(',')]
+    values = [v for v in (values or []) if v in allowed]
+    if not values:
+        values = list(default if default is not None else allowed)
+    return values
+
 class GenerateForm(forms.Form):
     sh_secret_field = forms.CharField(required=False)
     #Platform
@@ -15,6 +61,24 @@ class GenerateForm(forms.Form):
     version = forms.ChoiceField(choices=[('master','nightly'),('1.5.0','1.5.0'),('1.4.9','1.4.9'),('1.4.8','1.4.8'),('1.4.7','1.4.7'),('1.4.6','1.4.6'),('1.4.5','1.4.5'),('1.4.4','1.4.4'),('1.4.3','1.4.3'),('1.4.2','1.4.2'),('1.4.1','1.4.1'),('1.4.0','1.4.0')], initial='1.5.0')
     help_text="'master' is the development version (nightly build) with the latest features but may be less stable"
     delayFix = forms.BooleanField(initial=True, required=False)
+
+    #Build targets (which packages/architectures to produce for the platform)
+    formats = forms.MultipleChoiceField(
+        label="Formats to build",
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        choices=list(dict.fromkeys(
+            (code, label) for choices in PLATFORM_FORMATS.values() for code, label in choices
+        )),
+    )
+    arches = forms.MultipleChoiceField(
+        label="Architectures to build",
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        choices=list(dict.fromkeys(
+            (arch, arch) for arches in PLATFORM_ARCHES.values() for arch in arches
+        )),
+    )
 
     #General
     exename = forms.CharField(label="Name for EXE file", required=True)
@@ -128,3 +192,19 @@ class GenerateForm(forms.Form):
 
     def clean_compname(self):
         return self._reject_unsafe_name_chars('compname')
+
+    def clean(self):
+        cleaned_data = super().clean()
+        platform = cleaned_data.get('platform')
+        # Ignore boxes that belong to another platform (the form shows every
+        # platform's targets, only the selected one is submitted) and fall
+        # back to all targets of that platform when nothing is ticked.
+        cleaned_data['formats'] = normalize_selection(
+            cleaned_data.get('formats'),
+            platform_format_codes(platform),
+        )
+        cleaned_data['arches'] = normalize_selection(
+            cleaned_data.get('arches'),
+            PLATFORM_ARCHES.get(platform, []),
+        )
+        return cleaned_data

@@ -13,6 +13,16 @@ on:
         required: true
         default: ''
         type: string
+      formats:
+        description: 'CSV of packages to build (empty = all)'
+        required: false
+        default: ''
+        type: string
+      arches:
+        description: 'CSV of architectures to build (empty = all)'
+        required: false
+        default: ''
+        type: string
 
 
 env:
@@ -51,35 +61,43 @@ jobs:
     with:
       version: ${{ inputs.version }}
 
+  # Filters the build matrix down to the requested architectures: a job level
+  # `if` cannot read the matrix context, so this has to run first.
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - id: matrix
+        shell: bash
+        env:
+          ARCHES: ${{ inputs.arches }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, os
+
+          arches = [a.strip() for a in os.environ.get("ARCHES", "").split(",") if a.strip()]
+          if not arches:
+              arches = ["aarch64", "x86_64", "armv7"]
+
+          jobs = [
+              {"arch": "aarch64", "target": "aarch64-linux-android", "os": "ubuntu-24.04",
+               "reltype": "release", "suffix": ""},
+              {"arch": "armv7", "target": "armv7-linux-androideabi", "os": "ubuntu-24.04",
+               "reltype": "release", "suffix": ""},
+              {"arch": "x86_64", "target": "x86_64-linux-android", "os": "ubuntu-24.04",
+               "reltype": "release", "suffix": ""},
+          ]
+          print("matrix=" + json.dumps({"job": [j for j in jobs if j["arch"] in arches]}))
+          PY
+
   build-rustdesk-android:
-    needs: [generate-bridge-linux, setup]
+    needs: [generate-bridge-linux, setup, prepare]
     name: build rustdesk android apk ${{ matrix.job.target }}
     runs-on: ${{ matrix.job.os }}
     strategy:
       fail-fast: false
-      matrix:
-        job:
-          - {
-              arch: aarch64,
-              target: aarch64-linux-android,
-              os: ubuntu-24.04,
-              reltype: release,
-              suffix: "",
-            }
-          - {
-              arch: armv7,
-              target: armv7-linux-androideabi,
-              os: ubuntu-24.04,
-              reltype: release,
-              suffix: "",
-            }
-          - {
-              arch: x86_64,
-              target: x86_64-linux-android,
-              os: ubuntu-24.04,
-              reltype: release,
-              suffix: "",
-            }
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
