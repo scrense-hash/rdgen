@@ -124,6 +124,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: bridge-artifact
+          # Generated bridge sources only, but nothing needs them after the run;
+          # keep them from piling up when a run is cancelled before cleanup.
+          retention-days: 1
           path: |
             ./src/bridge_generated.rs
             ./src/bridge_generated.io.rs
