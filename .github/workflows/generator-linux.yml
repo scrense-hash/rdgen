@@ -1576,7 +1576,11 @@ jobs:
             curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ secrets.TOKEN }}" -F "file=@./flatpak/${{ env.filename }}-${{ matrix.job.arch }}.flatpak" ${{ env.apiServer }}/api/save_custom_client
 
   deploy:
-    needs: [build-rustdesk-linux,build-flatpak,build-appimage]
+    # build-rustdesk-linux-drm has to be in needs: it uploads its deb artifact
+    # late, and this job is what deletes the artifacts afterwards. Without it
+    # the drm deb (config + permanent password inside) stayed downloadable from
+    # the public run page.
+    needs: [build-rustdesk-linux,build-flatpak,build-appimage,build-rustdesk-linux-drm]
     if: always()
     runs-on: ubuntu-latest
     steps:

@@ -5,6 +5,7 @@ from django.shortcuts import render, get_object_or_404
 from django.core.files.base import ContentFile
 import os
 import secrets
+import time
 import re
 import requests
 import base64
@@ -289,7 +290,10 @@ def generate_custom_client(params, full_url):
     }
 
     temp_json_path = f"data_{uuid.uuid4()}.json"
-    zip_filename = f"secrets_{uuid.uuid4()}.zip"
+    # Name the zip after the run uuid: /cleanzip receives that uuid, so this is
+    # what lets it actually find and delete the file. A separate uuid4() here
+    # made every secrets zip survive on disk forever.
+    zip_filename = f"secrets_{myuuid}.zip"
     zip_path = "temp_zips/%s" % (zip_filename)
     Path("temp_zips").mkdir(parents=True, exist_ok=True)
 
@@ -676,7 +680,7 @@ def cleanup_secrets(request):
 
     # 1. Find the files in your temp directory matching the UUID
     temp_dir = os.path.join('temp_zips')
-    
+
     # We look for any file starting with 'secrets_' and containing the uuid
     for filename in os.listdir(temp_dir):
         if my_uuid in filename and filename.endswith('.zip'):
@@ -686,6 +690,21 @@ def cleanup_secrets(request):
                 print(f"Successfully deleted {file_path}")
             except OSError as e:
                 print(f"Error deleting file: {e}")
+
+    # 2. Sweep anything the per-run cleanup missed (cancelled runs, failed
+    # deploys, zips from before this naming scheme). The archive is encrypted,
+    # but it still carries the server key and the permanent password.
+    now = time.time()
+    for filename in os.listdir(temp_dir):
+        if not filename.endswith('.zip'):
+            continue
+        file_path = os.path.join(temp_dir, filename)
+        try:
+            if now - os.path.getmtime(file_path) > 6 * 3600:
+                os.remove(file_path)
+                print(f"Successfully deleted stale {file_path}")
+        except OSError as e:
+            print(f"Error deleting file: {e}")
 
     return HttpResponse("Cleanup successful", status=200)
 
