@@ -60,6 +60,8 @@ jobs:
     uses: ./.github/workflows/fetch-encrypted-secrets.yml
     with:
       zip_url_json: ${{ inputs.zip_url }}
+    secrets:
+      TOKEN: ${{ secrets.TOKEN }}
 
   build-for-windows-sciter:
     name: ${{ matrix.job.target }} (${{ matrix.job.os }})

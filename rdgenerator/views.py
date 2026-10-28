@@ -709,6 +709,12 @@ def cleanup_secrets(request):
     return HttpResponse("Cleanup successful", status=200)
 
 def get_zip(request):
+    # The archive carries the server key and the permanent password, so it is
+    # only handed to the build runners (same shared token as save_custom_client).
+    if TOKEN:
+        auth = request.headers.get("Authorization", "")
+        if auth != f"Bearer {TOKEN}":
+            return HttpResponseForbidden("Invalid token")
     filename = request.GET['filename']
     base_dir = os.path.abspath('temp_zips')
     file_path = os.path.abspath(os.path.join(base_dir, filename))

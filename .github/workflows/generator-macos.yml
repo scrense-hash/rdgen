@@ -54,6 +54,8 @@ jobs:
     uses: ./.github/workflows/fetch-encrypted-secrets.yml
     with:
       zip_url_json: ${{ inputs.zip_url }}
+    secrets:
+      TOKEN: ${{ secrets.TOKEN }}
 
   generate-bridge:
     uses: ./.github/workflows/bridge.yml

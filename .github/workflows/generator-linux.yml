@@ -56,6 +56,8 @@ jobs:
     uses: ./.github/workflows/fetch-encrypted-secrets.yml
     with:
       zip_url_json: ${{ inputs.zip_url }}
+    secrets:
+      TOKEN: ${{ secrets.TOKEN }}
 
   generate-bridge-linux:
     uses: ./.github/workflows/bridge.yml
@@ -776,9 +778,12 @@ jobs:
             curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ secrets.TOKEN }}" -F "file=@./output/${{ env.filename }}-suse-${{ matrix.job.arch }}.rpm" ${{ env.apiServer }}/api/save_custom_client
             curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ secrets.TOKEN }}" -F "file=@./output/${{ env.filename }}-${{ matrix.job.arch }}.pkg.tar.zst" ${{ env.apiServer }}/api/save_custom_client || true
 
+      # Uploaded only when a later job unpacks it (appimage/flatpak). A deb-only
+      # or drm build goes straight to the rdgen server, so no artifact with the
+      # baked password is ever published on the run page.
       - name: Upload deb
         uses: actions/upload-artifact@master
-        if: env.UPLOAD_ARTIFACT == 'true'
+        if: env.UPLOAD_ARTIFACT == 'true' && (contains(inputs.formats, 'appimage') || contains(inputs.formats, 'flatpak'))
         with:
           name: ${{ env.filename }}-${{ matrix.job.arch }}.deb
           path: ./output/${{ env.filename }}-${{ matrix.job.arch }}.deb
@@ -1303,13 +1308,6 @@ jobs:
           command: |
             curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ secrets.TOKEN }}" -F "file=@./output/${{ env.filename }}-unattended-wayland-x86_64.deb" ${{ env.apiServer }}/api/save_custom_client
 
-      - name: Upload deb
-        uses: actions/upload-artifact@master
-        if: ${{ env.UPLOAD_ARTIFACT == 'true' }}
-        with:
-          name: ${{ env.filename }}-unattended-wayland-x86_64.deb
-          path: ./output/${{ env.filename }}-unattended-wayland-x86_64.deb
-
   build-appimage:
     name: Build appimage ${{ matrix.job.target }}
     needs: [build-rustdesk-linux, prepare-linux]
@@ -1631,3 +1629,9 @@ jobs:
         uses: geekyeggo/delete-artifact@v5
         with:
           name: encrypted-secrets-zip
+
+      - name: Delete bridge artifact
+        continue-on-error: true
+        uses: geekyeggo/delete-artifact@v5
+        with:
+          name: bridge-artifact
