@@ -428,7 +428,10 @@ def generator_view(request):
         form = GenerateForm(request.POST, request.FILES)
         if form.is_valid():
             params = form.cleaned_data
-            full_url = f"{_settings.PROTOCOL}://{request.get_host()}" if _settings.GENURL else f"{_settings.PROTOCOL}://{request.get_host()}"
+            # The archive URL is handed to the GitHub runners, so it must be the
+            # public GENURL. request.get_host() is the LAN address whenever the
+            # UI is opened directly on :5000, and no runner can reach that.
+            full_url = _settings.GENURL.rstrip('/') if _settings.GENURL else f"{_settings.PROTOCOL}://{request.get_host()}"
             result = generate_custom_client(params, full_url)
             if result['success']:
                 return render(request, 'waiting.html', {

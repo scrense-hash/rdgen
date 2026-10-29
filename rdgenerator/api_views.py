@@ -248,8 +248,9 @@ def api_generate(request):
             "details": errors
         }, status=400)
 
-    # Build full_url the same way as generator_view
-    full_url = f"{_settings.PROTOCOL}://{request.get_host()}" if _settings.GENURL else f"{_settings.PROTOCOL}://{request.get_host()}"
+    # Same rule as generator_view: the runners download the archive, so it has
+    # to be the public GENURL, never whatever host the caller used.
+    full_url = _settings.GENURL.rstrip('/') if _settings.GENURL else f"{_settings.PROTOCOL}://{request.get_host()}"
 
     result = generate_custom_client(cleaned, full_url)
 
