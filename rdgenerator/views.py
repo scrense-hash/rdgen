@@ -111,6 +111,20 @@ def generate_custom_client(params, full_url):
     enableCamera = params.get('enableCamera', True)
     enableTerminal = params.get('enableTerminal', True)
 
+    # "Full Access" / "Screen share" are coarse presets. The form locks the
+    # per-permission checkboxes for them (and disabled controls are not
+    # submitted at all), so derive the flags from the preset instead of
+    # trusting the request: otherwise Full Access produced a client with every
+    # permission switched off, keyboard included.
+    if permissionsType == 'full':
+        enableKeyboard = enableClipboard = enableFileTransfer = enableAudio = True
+        enableTCP = enableRemoteRestart = enableRecording = enableBlockingInput = True
+        enableRemoteModi = enablePrinter = enableCamera = enableTerminal = True
+    elif permissionsType == 'view':
+        enableKeyboard = enableClipboard = enableFileTransfer = enableAudio = False
+        enableTCP = enableRemoteRestart = enableRecording = enableBlockingInput = False
+        enableRemoteModi = enablePrinter = enableCamera = enableTerminal = False
+
     if all(char.isascii() for char in filename):
         filename = re.sub(r'[^\w\s-]', '_', filename).strip()
         filename = filename.replace(" ","_")

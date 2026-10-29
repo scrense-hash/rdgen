@@ -509,74 +509,51 @@
         const enableCamera = document.getElementById("{{ form.enableCamera.id_for_label }}");
         const enableTerminal = document.getElementById("{{ form.enableTerminal.id_for_label }}");
 
-        document.getElementById("{{ form.permissionsType.id_for_label }}").addEventListener('change', function() {
-            if (this.value === 'full') {
-                enableKeyboard.checked = true;
-                enableClipboard.checked = true;
-                enableFileTransfer.checked = true;
-                enableAudio.checked = true;
-                enableTCP.checked = true;
-                enableRemoteRestart.checked = true;
-                enableRecording.checked = true;
-                enableBlockingInput.checked = true;
-                enableRemoteModi.checked = true;
-                enablePrinter.checked = true;
-                enableCamera.checked = true;
-                enableTerminal.checked = true;
+        const permissionInputs = {
+            enableKeyboard: enableKeyboard,
+            enableClipboard: enableClipboard,
+            enableFileTransfer: enableFileTransfer,
+            enableAudio: enableAudio,
+            enableTCP: enableTCP,
+            enableRemoteRestart: enableRemoteRestart,
+            enableRecording: enableRecording,
+            enableBlockingInput: enableBlockingInput,
+            enableRemoteModi: enableRemoteModi,
+            enablePrinter: enablePrinter,
+            enableCamera: enableCamera,
+            enableTerminal: enableTerminal,
+        };
 
-                enableKeyboard.disabled = true;
-                enableClipboard.disabled = true;
-                enableFileTransfer.disabled = true;
-                enableAudio.disabled = true;
-                enableTCP.disabled = true;
-                enableRemoteRestart.disabled = true;
-                enableRecording.disabled = true;
-                enableBlockingInput.disabled = true;
-                enableRemoteModi.disabled = true;
-                enablePrinter.disabled = true;
-                enableCamera.disabled = true;
-                enableTerminal.disable = true;
-            } else if (this.value === 'view') {
-                enableKeyboard.checked = false;
-                enableClipboard.checked = false;
-                enableFileTransfer.checked = false;
-                enableAudio.checked = false;
-                enableTCP.checked = false;
-                enableRemoteRestart.checked = false;
-                enableRecording.checked = false;
-                enableBlockingInput.checked = false;
-                enableRemoteModi.checked = false;
-                enablePrinter.checked = false;
-                enableCamera.checked = false;
-                enableTerminal.checked = false;
+        // "Full Access" and "Screen share" are presets: they set every
+        // permission and lock the boxes so the preset cannot be contradicted.
+        // "Custom" unlocks them and leaves whatever the user ticked alone.
+        function applyPermissionsType() {
+            const type = document.getElementById("{{ form.permissionsType.id_for_label }}").value;
+            const locked = type === 'full' || type === 'view';
+            Object.values(permissionInputs).forEach(input => {
+                if (!input) return;
+                if (locked) {
+                    input.checked = type === 'full';
+                }
+                input.disabled = locked;
+            });
+        }
 
-                enableKeyboard.disabled = true;
-                enableClipboard.disabled = true;
-                enableFileTransfer.disabled = true;
-                enableAudio.disabled = true;
-                enableTCP.disabled = true;
-                enableRemoteRestart.disabled = true;
-                enableRecording.disabled = true;
-                enableBlockingInput.disabled = true;
-                enableRemoteModi.disabled = true;
-                enablePrinter.disabled = true;
-                enableCamera.disabled = true;
-                enableTerminal.disable = true;
-            } else if (this.value === 'custom') {
-                enableKeyboard.disabled = false;
-                enableClipboard.disabled = false;
-                enableFileTransfer.disabled = false;
-                enableAudio.disabled = false;
-                enableTCP.disabled = false;
-                enableRemoteRestart.disabled = false;
-                enableRecording.disabled = false;
-                enableBlockingInput.disabled = false;
-                enableRemoteModi.disabled = false;
-                enablePrinter.checked = false;
-                enableCamera.checked = false;
-                enableTerminal.checked = false;
-            }
+        document.getElementById("{{ form.permissionsType.id_for_label }}")
+            .addEventListener('change', applyPermissionsType);
+
+        // Disabled controls are not submitted at all, so a locked preset would
+        // post no permissions and the client would end up with everything off
+        // (that is how "Full Access" used to produce enable-keyboard: N).
+        // Unlock them right before the form is sent.
+        document.getElementById("myForm").addEventListener('submit', function() {
+            Object.values(permissionInputs).forEach(input => {
+                if (input) input.disabled = false;
+            });
         });
+
+        applyPermissionsType();
+
         function previewImage(input, previewContainerId) {
             if (input.files && input.files[0]) {
                 var reader = new FileReader();
