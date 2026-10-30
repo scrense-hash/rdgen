@@ -134,19 +134,6 @@
             max-height: 100px;
             margin-top: 10px;
         }
-        .save-load-section-container { /* New container for fixed positioning */
-            position: fixed;
-            top: 20px; /* Adjust as needed */
-            left: 20px; /* Adjust as needed */
-            background-color: #111; /* Match your section background */
-            padding: 0px;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            z-index: 100; /* Ensure it's above other content */
-        }
-        .save-load-section {
-            display: none; /* Initially hidden */
-        }
         .error {
             color: red;
         }
@@ -235,14 +222,12 @@
 <body>
     <h1><i class="fas fa-cogs"></i> RustDesk Custom Client Builder</h1>
     <form id="myForm" action="/generator" method="post" enctype="multipart/form-data">
-        <div class="save-load-section-container">
+        <div class="container" style="grid-template-columns: 1fr;">
             <div class="section">
                 <h2><i class="fas fa-save"></i> Configuration</h2>
-                <div class="save-load-section">
-                    <button type="button" onclick="saveLocalState()">Save Configuration</button>
-                    <span id="saveStatus" class="help-text"></span>
-                    <a href="#" onclick="clearLocalState(); return false;" class="help-text">Reset to defaults</a>
-                </div>
+                <button type="button" onclick="saveLocalState()">Save Configuration</button>
+                <span id="saveStatus" class="help-text"></span>
+                <a href="#" onclick="clearLocalState(); return false;" class="help-text" style="margin-left: 15px;">Reset to defaults</a>
             </div>
         </div>
         {% if form.iconfile.errors %}
