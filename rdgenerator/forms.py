@@ -193,7 +193,11 @@ class GenerateForm(forms.Form):
 
     #Security
     passApproveMode = forms.ChoiceField(choices=[('password','Accept sessions via password'),('click','Accept sessions via click'),('password-click','Accepts sessions via both')],initial='password-click')
-    permanentPassword = forms.CharField(widget=forms.PasswordInput(), required=False)
+    # render_value so a DEFAULT_PASSWORD from .env actually shows up in the
+    # field: Django omits the value of a password input by default. The page is
+    # behind basic auth, and the value is only as exposed as the prefilled
+    # field itself.
+    permanentPassword = forms.CharField(widget=forms.PasswordInput(render_value=True), required=False)
     #runasadmin = forms.ChoiceField(choices=[('false','No'),('true','Yes')], initial='false')
     denyLan = forms.BooleanField(initial=False, required=False)
     enableDirectIP = forms.BooleanField(initial=False, required=False)
