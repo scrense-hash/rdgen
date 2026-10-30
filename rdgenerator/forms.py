@@ -1,3 +1,4 @@
+import os
 import re
 
 from django import forms
@@ -27,6 +28,76 @@ PLATFORM_FORMATS = {
     'android': [('apk', 'APK')],
     'macos': [('dmg', 'DMG')],
 }
+
+# Optional prefill for the web form: DEFAULT_<NAME> in the environment seeds
+# the matching field, so a single-user deployment does not retype the same
+# values on every build. Only the web form is affected; the JSON API still
+# takes exactly what the caller sends.
+BOOL_FORM_FIELDS = {
+    'delayFix', 'denyLan', 'enableDirectIP', 'autoClose', 'enableKeyboard',
+    'enableClipboard', 'enableFileTransfer', 'enableAudio', 'enableTCP',
+    'enableRemoteRestart', 'enableRecording', 'enableBlockingInput',
+    'enableRemoteModi', 'hidecm', 'enablePrinter', 'enableCamera',
+    'enableTerminal', 'removeWallpaper', 'xOffline', 'removeNewVersionNotif',
+}
+LIST_FORM_FIELDS = {'formats', 'arches'}
+
+DEFAULT_ENV_FIELDS = {
+    'PLATFORM': 'platform',
+    'VERSION': 'version',
+    'EXENAME': 'exename',
+    'SERVER': 'serverIP',
+    'SERVER_PORT': 'serverPort',
+    'APISERVER': 'apiServer',
+    'KEY': 'key',
+    'PASSWORD': 'permanentPassword',
+    'DIRECTION': 'direction',
+    'INSTALLATION': 'installation',
+    'SETTINGS': 'settings',
+    'PASS_APPROVE_MODE': 'passApproveMode',
+    'PERMISSIONS_DORO': 'permissionsDorO',
+    'PERMISSIONS_TYPE': 'permissionsType',
+    'THEME': 'theme',
+    'THEME_DORO': 'themeDorO',
+    'COMPNAME': 'compname',
+    'HIDECM': 'hidecm',
+    'DENYLAN': 'denyLan',
+    'FORMATS': 'formats',
+    'ARCHES': 'arches',
+    'ENABLE_KEYBOARD': 'enableKeyboard',
+    'ENABLE_CLIPBOARD': 'enableClipboard',
+    'ENABLE_FILE_TRANSFER': 'enableFileTransfer',
+    'ENABLE_AUDIO': 'enableAudio',
+    'ENABLE_TCP': 'enableTCP',
+    'ENABLE_REMOTE_RESTART': 'enableRemoteRestart',
+    'ENABLE_RECORDING': 'enableRecording',
+    'ENABLE_BLOCKING_INPUT': 'enableBlockingInput',
+    'ENABLE_REMOTE_MODI': 'enableRemoteModi',
+    'ENABLE_PRINTER': 'enablePrinter',
+    'ENABLE_CAMERA': 'enableCamera',
+    'ENABLE_TERMINAL': 'enableTerminal',
+}
+
+
+def _env_bool(value):
+    return str(value).strip().lower() in ('1', 'true', 'yes', 'y', 'on')
+
+
+def form_initial():
+    """Initial values for GenerateForm, taken from DEFAULT_* env vars."""
+    initial = {}
+    for env_name, field in DEFAULT_ENV_FIELDS.items():
+        raw = os.environ.get('DEFAULT_' + env_name)
+        if raw is None or raw.strip() == '':
+            continue
+        if field in LIST_FORM_FIELDS:
+            initial[field] = [v.strip() for v in raw.split(',') if v.strip()]
+        elif field in BOOL_FORM_FIELDS:
+            initial[field] = _env_bool(raw)
+        else:
+            initial[field] = raw.strip()
+    return initial
+
 
 PLATFORM_ARCHES = {
     'windows': ['x86_64'],

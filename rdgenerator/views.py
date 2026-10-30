@@ -14,7 +14,7 @@ import uuid
 import pyzipper
 from django.conf import settings as _settings
 from django.db.models import Q
-from .forms import GenerateForm, PLATFORM_ARCHES, platform_format_codes, normalize_selection
+from .forms import GenerateForm, PLATFORM_ARCHES, platform_format_codes, normalize_selection, form_initial
 from .models import GithubRun
 from PIL import Image
 from urllib.parse import quote
@@ -444,9 +444,17 @@ def generator_view(request):
             else:
                 return JsonResponse({"error": result['error']}, status=result.get('status_code', 500))
     else:
-        form = GenerateForm()
+        form = GenerateForm(initial=form_initial())
     #return render(request, 'maintenance.html')
-    return render(request, 'generator.html', {'form': form})
+    # formats/arches are rendered as hand-written checkboxes (they are filtered
+    # per platform in JS), so their DEFAULT_* values are handed to the template
+    # as JSON instead of going through the form widget.
+    initial = form_initial()
+    return render(request, 'generator.html', {
+        'form': form,
+        'default_formats': json.dumps(initial.get('formats', [])),
+        'default_arches': json.dumps(initial.get('arches', [])),
+    })
 
 
 def _artifact_names(filename, platform, formats, arches):
