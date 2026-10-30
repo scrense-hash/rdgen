@@ -54,6 +54,7 @@ def generate_custom_client(params, full_url):
     xOffline = params.get('xOffline', False)
     hidecm = params.get('hidecm', False)
     removeNewVersionNotif = params.get('removeNewVersionNotif', False)
+    enableCheckUpdate = params.get('enableCheckUpdate', False)
     server = params.get('serverIP', '')
     serverPort = params.get('serverPort', '')
     key = params.get('key', '')
@@ -237,6 +238,11 @@ def generate_custom_client(params, full_url):
         if direction == 'incoming':
             decodedCustom['override-settings']['custom-rendezvous-server'] = server
             decodedCustom['override-settings']['api-server'] = apiServer
+
+    # Force the update-check setting to match the checkbox. The workflow patch
+    # removes the update request itself, but the toggle in the client would
+    # otherwise stay on and look like the build ignored the setting.
+    decodedCustom['override-settings']['enable-check-update'] = 'Y' if enableCheckUpdate else 'N'
 
     if defaultManual:
         for line in defaultManual.splitlines():

@@ -39,6 +39,7 @@ BOOL_FORM_FIELDS = {
     'enableRemoteRestart', 'enableRecording', 'enableBlockingInput',
     'enableRemoteModi', 'hidecm', 'enablePrinter', 'enableCamera',
     'enableTerminal', 'removeWallpaper', 'xOffline', 'removeNewVersionNotif',
+    'enableCheckUpdate',
 }
 LIST_FORM_FIELDS = {'formats', 'arches'}
 
@@ -76,6 +77,7 @@ DEFAULT_ENV_FIELDS = {
     'ENABLE_PRINTER': 'enablePrinter',
     'ENABLE_CAMERA': 'enableCamera',
     'ENABLE_TERMINAL': 'enableTerminal',
+    'ENABLE_CHECK_UPDATE': 'enableCheckUpdate',
 }
 
 
@@ -230,6 +232,9 @@ class GenerateForm(forms.Form):
     #custom added features
     xOffline = forms.BooleanField(initial=False, required=False)
     removeNewVersionNotif = forms.BooleanField(initial=False, required=False)
+    # Writes enable-check-update; the workflow's removeNewVersionNotif patch
+    # only guts the updater, it leaves this setting on in the client UI.
+    enableCheckUpdate = forms.BooleanField(initial=False, required=False)
 
     def clean_iconfile(self):
         print("checking icon")
