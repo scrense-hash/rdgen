@@ -503,6 +503,20 @@ def check_for_file(request):
     files = [name for name in _artifact_names(filename, platform, formats, arches)
              if _safe_parts(uuid, name) and os.path.isfile(os.path.join('exe', uuid, name))]
 
+    # A green run that uploaded nothing means the package was lost on the way
+    # (empty token -> 403 that curl still treated as success, missing artifact,
+    # ...). Do not claim success in that case, point at the log instead.
+    if gh_run.status == "success" and not files:
+        return render(request, 'failure.html', {
+            'log_url': github_log_url,
+            'filename': filename,
+            'uuid': uuid,
+            'platform': platform,
+            'status': gh_run.status,
+            'files': files,
+            'no_files': True
+        })
+
     if gh_run.status == "success":
         return render(request, 'generated.html', {
             'filename': filename, 
