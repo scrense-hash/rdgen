@@ -242,6 +242,7 @@
                     <button type="button" onclick="saveFormData()">Save Configuration</button>
                     <input type="file" id="fileInput" style="display:none;" accept=".json">
                     <button type="button" onclick="loadFormData()">Load Configuration</button>
+                    <button type="button" onclick="clearLocalState()">Clear saved (browser)</button>
                 </div>
             </div>
         </div>
@@ -465,34 +466,92 @@
             });
         }
 
-        document.querySelectorAll('.platform-icon').forEach(icon => {
-            icon.addEventListener('click', function() {
-                document.querySelectorAll('.platform-icon').forEach(i => i.classList.remove('active'));
-                this.classList.add('active');
-                document.getElementById('id_platform').value = this.dataset.platform;
-                updateTargets();
-            });
-        });
-        document.getElementById('id_platform').addEventListener('change', updateTargets);
-        updateTargets();
-
-        // Apply the server-side formats/arches on top of the per-platform
-        // defaults, and keep the platform icons in sync with a prefilled select.
-        (function applyServerTargets() {
-            const wanted = { formats: SERVER_FORMATS, arches: SERVER_ARCHES };
-            if (wanted.formats.length || wanted.arches.length) {
-                document.querySelectorAll('#targets .target-option').forEach(option => {
-                    const input = option.querySelector('input');
-                    if (!input || option.style.display === 'none') return;
-                    const list = wanted[input.name];
-                    if (list && list.length) input.checked = list.includes(input.value);
-                });
-            }
+        function syncPlatformIcon() {
             const platform = document.getElementById('id_platform').value;
             document.querySelectorAll('.platform-icon').forEach(icon => {
                 icon.classList.toggle('active', icon.dataset.platform === platform);
             });
-        })();
+        }
+
+        function applyTargetList(wanted) {
+            document.querySelectorAll('#targets .target-option').forEach(option => {
+                const input = option.querySelector('input');
+                if (!input || option.style.display === 'none') return;
+                const list = wanted[input.name];
+                if (list && list.length) input.checked = list.includes(input.value);
+            });
+        }
+
+        document.querySelectorAll('.platform-icon').forEach(icon => {
+            icon.addEventListener('click', function() {
+                document.getElementById('id_platform').value = this.dataset.platform;
+                syncPlatformIcon();
+                updateTargets();
+            });
+        });
+        document.getElementById('id_platform').addEventListener('change', function() {
+            syncPlatformIcon();
+            updateTargets();
+        });
+
+        // ---- browser-side memory -------------------------------------------------
+        // Anything not in .env used to be forgotten on reload: the permission
+        // preset, the notification/update checkboxes, the chosen formats. Keep
+        // the last used state in localStorage; .env defaults still seed a fresh
+        // browser and "Clear saved" goes back to them.
+        const LS_KEY = 'rdgen.form.v1';
+
+        function collectSimpleState() {
+            const form = document.getElementById('myForm');
+            const state = {};
+            form.querySelectorAll('input, select, textarea').forEach(el => {
+                if (!el.name || el.type === 'file') return;
+                if (el.type === 'checkbox') {
+                    state[el.name] = el.checked;
+                } else if (el.type === 'radio') {
+                    if (el.checked) state[el.name] = el.value;
+                } else if (el.name !== 'formats' && el.name !== 'arches') {
+                    state[el.name] = el.value;
+                }
+            });
+            ['formats', 'arches'].forEach(name => {
+                state[name] = [...form.querySelectorAll(`input[name="${name}"]:checked`)].map(i => i.value);
+            });
+            return state;
+        }
+
+        function applySimpleState(state) {
+            const form = document.getElementById('myForm');
+            Object.keys(state || {}).forEach(name => {
+                if (name === 'formats' || name === 'arches') {
+                    const list = state[name] || [];
+                    form.querySelectorAll(`input[name="${name}"]`).forEach(input => {
+                        input.checked = list.includes(input.value);
+                    });
+                    return;
+                }
+                form.querySelectorAll(`[name="${name}"]`).forEach(element => {
+                    if (element.type === 'checkbox') {
+                        element.checked = !!state[name];
+                    } else if (element.type === 'radio') {
+                        element.checked = (element.value === String(state[name]));
+                    } else {
+                        element.value = state[name];
+                    }
+                });
+            });
+        }
+
+        function saveLocalState() {
+            try {
+                localStorage.setItem(LS_KEY, JSON.stringify(collectSimpleState()));
+            } catch (e) { /* private mode or quota: not fatal */ }
+        }
+
+        function clearLocalState() {
+            try { localStorage.removeItem(LS_KEY); } catch (e) {}
+            window.location.reload();
+        }
         document.getElementById("{{ form.iconfile.id_for_label }}").addEventListener('change', function(event) {
             previewImage(event.target, 'icon-preview');
         });
@@ -569,7 +628,29 @@
             });
         });
 
+        // ---- initial state -------------------------------------------------------
+        let SAVED_STATE = null;
+        try {
+            SAVED_STATE = JSON.parse(localStorage.getItem(LS_KEY) || 'null');
+        } catch (e) {
+            SAVED_STATE = null;
+        }
+
+        if (SAVED_STATE) {
+            applySimpleState(SAVED_STATE);
+        }
+        syncPlatformIcon();
+        updateTargets();
+        if (SAVED_STATE) {
+            applySimpleState({ formats: SAVED_STATE.formats || [], arches: SAVED_STATE.arches || [] });
+        } else {
+            applyTargetList({ formats: SERVER_FORMATS, arches: SERVER_ARCHES });
+        }
         applyPermissionsType();
+
+        const myForm = document.getElementById('myForm');
+        myForm.addEventListener('change', saveLocalState);
+        myForm.addEventListener('submit', saveLocalState);
 
         function previewImage(input, previewContainerId) {
             if (input.files && input.files[0]) {
@@ -807,6 +888,13 @@
                                 }
                             }
                             showLoadWarnings(skippedKeys);
+                            // Re-derive what depends on the platform/preset, then
+                            // put the loaded targets and preset back on top.
+                            updateTargets();
+                            applySimpleState({ formats: formData.formats || [], arches: formData.arches || [] });
+                            applyPermissionsType();
+                            syncPlatformIcon();
+                            saveLocalState();
                         } catch (error) {
                             alert("Error loading data. Invalid JSON file.");
                         }
