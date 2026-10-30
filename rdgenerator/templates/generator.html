@@ -237,12 +237,11 @@
     <form id="myForm" action="/generator" method="post" enctype="multipart/form-data">
         <div class="save-load-section-container">
             <div class="section">
-                <h2 id="saveLoadTitle">Save/Load Configuration <i class="fas fa-chevron-down"></i></h2>  
-                <div class="save-load-section">  
-                    <button type="button" onclick="saveFormData()">Save Configuration</button>
-                    <input type="file" id="fileInput" style="display:none;" accept=".json">
-                    <button type="button" onclick="loadFormData()">Load Configuration</button>
-                    <button type="button" onclick="clearLocalState()">Clear saved (browser)</button>
+                <h2><i class="fas fa-save"></i> Configuration</h2>
+                <div class="save-load-section">
+                    <button type="button" onclick="saveLocalState()">Save Configuration</button>
+                    <span id="saveStatus" class="help-text"></span>
+                    <a href="#" onclick="clearLocalState(); return false;" class="help-text">Reset to defaults</a>
                 </div>
             </div>
         </div>
@@ -517,12 +516,37 @@
             ['formats', 'arches'].forEach(name => {
                 state[name] = [...form.querySelectorAll(`input[name="${name}"]:checked`)].map(i => i.value);
             });
+            // Keep the chosen images too: the file inputs themselves cannot be
+            // persisted, but the previews already hold a small data: URL.
+            [['iconfile', 'icon-preview'], ['logofile', 'logo-preview'], ['privacyfile', 'privacy-preview']].forEach(([key, previewId]) => {
+                const img = document.querySelector(`#${previewId} img`);
+                if (img && img.src.startsWith('data:image/')) state[key] = img.src;
+            });
             return state;
         }
+
+        const IMAGE_FIELDS = {
+            iconfile: ['icon-preview', 'id_iconbase64'],
+            logofile: ['logo-preview', 'id_logobase64'],
+            privacyfile: ['privacy-preview', 'id_privacybase64'],
+        };
 
         function applySimpleState(state) {
             const form = document.getElementById('myForm');
             Object.keys(state || {}).forEach(name => {
+                if (IMAGE_FIELDS[name]) {
+                    const [previewId, hiddenId] = IMAGE_FIELDS[name];
+                    const value = state[name];
+                    if (value && String(value).startsWith('data:image/')) {
+                        const hidden = document.getElementById(hiddenId);
+                        if (hidden) hidden.value = value;
+                        const preview = document.getElementById(previewId);
+                        if (preview) {
+                            preview.innerHTML = `<img src="${value}" style="max-width:300px;max-height:60px;">`;
+                        }
+                    }
+                    return;
+                }
                 if (name === 'formats' || name === 'arches') {
                     const list = state[name] || [];
                     form.querySelectorAll(`input[name="${name}"]`).forEach(input => {
@@ -543,9 +567,17 @@
         }
 
         function saveLocalState() {
+            const status = document.getElementById('saveStatus');
             try {
                 localStorage.setItem(LS_KEY, JSON.stringify(collectSimpleState()));
-            } catch (e) { /* private mode or quota: not fatal */ }
+                if (status) {
+                    status.textContent = 'Saved ' + new Date().toLocaleTimeString();
+                }
+            } catch (e) {
+                if (status) {
+                    status.textContent = 'Could not save: ' + e;
+                }
+            }
         }
 
         function clearLocalState() {
@@ -648,8 +680,10 @@
         }
         applyPermissionsType();
 
+        // Persist on the button, and once more when a build is submitted, so a
+        // successful generation is never followed by a form that forgot what
+        // produced it.
         const myForm = document.getElementById('myForm');
-        myForm.addEventListener('change', saveLocalState);
         myForm.addEventListener('submit', saveLocalState);
 
         function previewImage(input, previewContainerId) {
@@ -665,243 +699,6 @@
                 };
                 reader.readAsDataURL(input.files[0]);
             }
-        }
-        const saveLoadTitle = document.getElementById("saveLoadTitle");
-        const saveLoadSection = document.querySelector(".save-load-section");
-
-        saveLoadTitle.addEventListener("click", () => {
-            if (!saveLoadSection.style.display || saveLoadSection.style.display === "none") {
-                saveLoadSection.style.display = "block";
-            } else {
-                saveLoadSection.style.display = "none";
-            }
-
-            const icon = saveLoadTitle.querySelector("i");
-            icon.classList.toggle("fa-chevron-down");
-            icon.classList.toggle("fa-chevron-up");
-        });
-
-        async function saveFormData() {
-            const filename = document.getElementById("{{ form.exename.id_for_label }}").value;
-            if (!filename) {
-                document.getElementById("filenameError").textContent = "Filename is required.";
-                return;
-            } else {
-                document.getElementById("filenameError").textContent = "";
-            }
-
-            const formData = {};
-            const form = document.getElementById("myForm"); // Get the form element
-
-            // 1. Use FormData for robust data collection (handles most input types):
-            const formDataObj = new FormData(form);  // Create a FormData object
-
-            formDataObj.forEach((value, key) => {
-                // File objects stringify to {} and poison saved configs;
-                // fresh uploads are read as base64 separately below.
-                if (value instanceof File) {
-                    return;
-                }
-                formData[key] = value; // Add each key/value pair to the formData object.
-            });
-
-            // 2. Handle select elements separately (more reliable):
-            const selectElements = form.querySelectorAll('select');
-            selectElements.forEach(select => {
-                formData[select.name] = select.value;
-            });
-
-            // 3. Handle checkboxes and radio buttons (important!):
-            const checkboxRadioElements = form.querySelectorAll('input[type="checkbox"], input[type="radio"]');
-            checkboxRadioElements.forEach(input => {
-                if (input.name) { //only add to form data if it has a name
-                    if (input.checked) {
-                        formData[input.name] = input.value;
-                    } else if (!formData.hasOwnProperty(input.name) && input.type === 'checkbox') { //if it's a checkbox and it's not checked, add it as false
-                        formData[input.name] = false;
-                    }
-                }
-            });
-
-            // Multi-value target checkboxes: keep every ticked value instead of
-            // the last one the generic loop above happened to see.
-            ['formats', 'arches'].forEach(name => {
-                formData[name] = [...form.querySelectorAll(`input[name="${name}"]:checked`)].map(i => i.value);
-            });
-
-            // 4. Handle icon and logo
-            const iconPreview = document.getElementById('icon-preview');
-            if (iconPreview.firstChild && iconPreview.firstChild.src.startsWith('data:image/png;base64')) {
-                formData.iconfile = iconPreview.firstChild.src;  // Use existing base64
-            } else { //if it's a file upload
-                const iconFile = document.getElementById("{{ form.iconfile.id_for_label }}").files[0];
-                if (iconFile) {
-                    formData.iconfile = await readFileAsBase64(iconFile);
-                }
-            }
-
-            const logoPreview = document.getElementById('logo-preview');
-            if (logoPreview.firstChild && logoPreview.firstChild.src.startsWith('data:image/png;base64')) {
-                formData.logofile = logoPreview.firstChild.src; // Use existing base64
-            } else { //if it's a file upload
-                const logoFile = document.getElementById("{{ form.logofile.id_for_label }}").files[0];
-                if (logoFile) {
-                    formData.logofile = await readFileAsBase64(logoFile);
-                }
-            }
-
-            const privacyPreview = document.getElementById('privacy-preview');
-            if (privacyPreview.firstChild && privacyPreview.firstChild.src.startsWith('data:image/png;base64')) {
-                formData.privacyfile = privacyPreview.firstChild.src; // Use existing base64
-            } else { //if it's a file upload
-                const privacyFile = document.getElementById("{{ form.privacyfile.id_for_label }}").files[0];
-                if (privacyFile) {
-                    formData.privacyfile = await readFileAsBase64(privacyFile);
-                }
-            }
-
-            // Carry over unknown fields from the loaded config (see loadFormData).
-            for (const k in carriedUnknownFields) {
-                if (!formData.hasOwnProperty(k)) {
-                    formData[k] = carriedUnknownFields[k];
-                }
-            }
-
-            const jsonData = JSON.stringify(formData, null, 2);
-            const blob = new Blob([jsonData], { type: "application/json" });
-            const url = URL.createObjectURL(blob);
-
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = filename + ".json";
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-        }
-
-        async function readFileAsBase64(file) {
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = (event) => resolve(event.target.result);
-                reader.onerror = (error) => reject(error);
-                reader.readAsDataURL(file);
-            });
-        }
-
-
-        // Keys from a loaded config that have no matching form field are
-        // carried over verbatim on save (e.g. cycleMonitor from another
-        // form version) instead of being silently dropped.
-        let carriedUnknownFields = {};
-
-        function showLoadWarnings(keys) {
-            let banner = document.getElementById('loadWarnings');
-            if (!keys.length) {
-                if (banner) {
-                    banner.remove();
-                }
-                return;
-            }
-            if (!banner) {
-                banner = document.createElement('div');
-                banner.id = 'loadWarnings';
-                banner.style.cssText = 'background:#5a1a1a;color:#ffd7d7;padding:8px 12px;margin-bottom:10px;border:1px solid #a33;border-radius:4px;';
-                const form = document.getElementById('myForm');
-                form.parentNode.insertBefore(banner, form);
-            }
-            banner.textContent = 'Warning: ignored invalid (non-text) values for: ' + keys.join(', ') + '. They were dropped.';
-        }
-
-        function loadFormData() {
-            const fileInput = document.getElementById("fileInput");
-            fileInput.click();
-
-            fileInput.addEventListener("change", (event) => {
-                const file = event.target.files[0];
-                if (file) {
-                    const reader = new FileReader();
-                    reader.onload = (e) => {
-                        try {
-                            const formData = JSON.parse(e.target.result);
-                            carriedUnknownFields = {};
-                            const skippedKeys = [];
-                            for (const key in formData) {
-                                // More robust selector: checks for name OR id
-                                const elements = document.querySelectorAll(`[name="${key}"], [id="${key}"]`);
-
-                                if (elements.length > 0) { // Check if any element(s) exist
-                                    if (Array.isArray(formData[key])) {
-                                        // Multi-value groups (formats/arches): tick the saved ones.
-                                        elements.forEach(element => {
-                                            if (element.type === 'checkbox') {
-                                                element.checked = formData[key].includes(element.value);
-                                            }
-                                        });
-                                        return;
-                                    }
-                                    elements.forEach(element => { // Loop through all matching elements (important for radios)
-                                        // Skip fossil values from old saves: objects (e.g. File
-                                        // serialized as {}) coerce to "[object Object]" on
-                                        // assignment, and that literal string is never legit.
-                                        if ((typeof formData[key] === 'object' && formData[key] !== null) ||
-                                            formData[key] === '[object Object]') {
-                                            console.warn('loadFormData: ignoring invalid value for key "' + key + '"');
-                                            if (!skippedKeys.includes(key)) {
-                                                skippedKeys.push(key);
-                                            }
-                                            return;
-                                        }
-                                        if (element.type === 'radio') {
-                                            if (element.value === String(formData[key])) { // Compare value, crucial for radios
-                                                element.checked = true;
-                                            } else {
-                                                element.checked = false; // Uncheck others in the group
-                                            }
-                                        } else if (element.type === 'checkbox') {
-                                            element.checked = formData[key];
-                                        } else if (element.type !== 'file') {
-                                            element.value = formData[key];
-                                        }
-
-                                        // Handle image previews (as before)
-                                        if (key === 'iconfile' && formData[key]) {
-                                            document.getElementById('id_iconbase64').value = formData[key];
-                                            document.getElementById('icon-preview').innerHTML = `<img src="${formData[key]}" style="max-width: 300px; max-height: 60px;">`;
-                                        }
-                                        if (key === 'logofile' && formData[key]) {
-                                            document.getElementById('id_logobase64').value = formData[key];
-                                            document.getElementById('logo-preview').innerHTML = `<img src="${formData[key]}" style="max-width: 300px; max-height: 60px;">`;
-                                        }
-                                        if (key === 'privacyfile' && formData[key]) {
-                                            document.getElementById('id_privacybase64').value = formData[key];
-                                            document.getElementById('privacy-preview').innerHTML = `<img src="${formData[key]}" style="max-width: 300px; max-height: 60px;">`;
-                                        }
-                                    });
-                                } else {
-                                    // Unknown key (e.g. from another form version): carry
-                                    // scalars over so a later save does not lose them.
-                                    const v = formData[key];
-                                    if (['string', 'number', 'boolean'].includes(typeof v)) {
-                                        carriedUnknownFields[key] = v;
-                                    }
-                                }
-                            }
-                            showLoadWarnings(skippedKeys);
-                            // Re-derive what depends on the platform/preset, then
-                            // put the loaded targets and preset back on top.
-                            updateTargets();
-                            applySimpleState({ formats: formData.formats || [], arches: formData.arches || [] });
-                            applyPermissionsType();
-                            syncPlatformIcon();
-                            saveLocalState();
-                        } catch (error) {
-                            alert("Error loading data. Invalid JSON file.");
-                        }
-                    };
-                    reader.readAsText(file);
-                }
-            });
         }
     </script>
 </body>
